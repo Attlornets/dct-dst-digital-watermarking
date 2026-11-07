@@ -8,7 +8,8 @@ transform modes and reports PSNR and SSIM.
 
 > This is a signal-processing demonstration, not a legal proof of ownership.
 > Lossless PNG is required for verification; lossy re-encoding, resizing,
-> cropping, or other image edits can destroy the watermark.
+> cropping, or other image edits can destroy the watermark. PNG transparency
+> (alpha channel) is preserved by the CLI.
 
 ## Features
 
@@ -30,6 +31,11 @@ dct-dst-digital-watermarking/
 │   └── metrics.py
 ├── tests/
 ├── samples/
+├── frontend/
+│   ├── index.html
+│   ├── styles.css
+│   └── app.js
+├── app.py
 ├── cli.py
 ├── requirements.txt
 └── README.md
@@ -76,7 +82,9 @@ the image or establish that a claimant legally owns the image.
 
 ## Setup
 
-From the project directory:
+From the project directory. The CLI accepts 8-bit BGR images and BGRA PNGs;
+when the input has transparency, the alpha channel is retained in the output.
+Quality metrics compare the BGR color channels.
 
 ```powershell
 python -m venv .venv
@@ -113,6 +121,11 @@ error. The CLI writes PNG only; use the same transform mode and alpha at
 verification. Reconstructed luminance is clipped to `[0,255]`, while chroma is
 not altered by the embedding process.
 
+For BGRA PNGs, a block is eligible only when all 64 alpha values are fully
+opaque (`255`). Transparent and partially transparent blocks are skipped, and
+capacity is four bits per eligible block. This avoids embedding data in
+invisible pixels; the alpha channel itself is preserved.
+
 ## Quality metrics
 
 PSNR is measured in dB over the complete BGR image with an 8-bit data range.
@@ -128,3 +141,30 @@ python -m pytest
 
 The tests cover encrypted round trips in both transform modes, image quality,
 wrong-password rejection, and capacity-limit handling.
+
+## Interactive web application
+
+The local FastAPI server serves a single-page Swiss-grid interface and the
+watermark API. It performs encryption and image processing in the Python
+backend; uploaded images are not sent to an external service.
+
+Install dependencies and run the development server from the project folder:
+
+```powershell
+python -m pip install -r requirements.txt
+python -m uvicorn app:app --host 127.0.0.1 --port 8000
+```
+
+Open [http://127.0.0.1:8000](http://127.0.0.1:8000). Drop a PNG/JPEG, choose
+owner/password/mode/alpha, and select **Encrypt & Embed Watermark**. The report
+includes original and watermarked lossless PNGs, a residual heatmap, spectrum,
+PSNR/SSIM, and payload capacity. Click either result image to inspect its 8x8
+block; hover the pixel grid for RGB/YCrCb values. The transform observatory
+shows spatial, DCT/DST, QIM, and reconstructed blocks. The verification drawer
+checks an existing PNG using the selected mode and alpha.
+
+The app also exposes `/api/embed`, `/api/verify`, and `/api/inspect`; interactive
+API documentation is available at [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs).
+The API accepts images up to 8 megapixels and 25 MiB. The server binds to
+loopback by default. Keep it local and do not expose it to untrusted networks
+without adding authentication and deployment hardening.
