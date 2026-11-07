@@ -1,8 +1,10 @@
 """Round-trip, authentication, and capacity tests for image watermarking."""
 
+import cv2
 import numpy as np
 import pytest
 
+from cli import main
 from src.crypto_utils import AuthenticationError
 from src.metrics import psnr, ssim
 from src.transforms import BLOCK_SIZE, bgr_to_ycrcb, forward_block, inverse_block, ycrcb_to_bgr
@@ -73,3 +75,50 @@ def test_capacity_limit_is_reported() -> None:
             "password",
             "checkerboard",
         )
+
+
+def test_cli_preserves_png_transparency(tmp_path) -> None:
+    image = synthetic_image()
+    alpha = np.full(image.shape[:2], 255, dtype=np.uint8)
+    alpha[:48, :48] = 0
+    bgra = np.dstack((image, alpha))
+    input_path = tmp_path / "transparent-cover.png"
+    output_path = tmp_path / "transparent-watermarked.png"
+    assert cv2.imwrite(str(input_path), bgra)
+
+    original = cv2.imread(str(input_path), cv2.IMREAD_UNCHANGED)
+    assert main(
+        [
+            "embed",
+            "--input",
+            str(input_path),
+            "--output",
+            str(output_path),
+            "--owner",
+            "Transparent image owner",
+            "--password",
+            "test-password",
+            "--mode",
+            "hybrid",
+        ]
+    ) == 0
+
+    output = cv2.imread(str(output_path), cv2.IMREAD_UNCHANGED)
+    assert output.shape == bgra.shape
+    np.testing.assert_array_equal(output[:, :, 3], alpha)
+    transparent_color_delta = np.abs(
+        output[alpha == 0, :3].astype(np.int16)
+        - original[alpha == 0, :3].astype(np.int16)
+    )
+    assert transparent_color_delta.max() <= 1
+    assert main(
+        [
+            "verify",
+            "--input",
+            str(output_path),
+            "--password",
+            "test-password",
+            "--mode",
+            "hybrid",
+        ]
+    ) == 0

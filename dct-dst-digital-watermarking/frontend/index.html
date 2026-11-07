@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#fafafa">
+    <title>Field / Frequency — Watermark Studio</title>
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="wordmark" href="/" aria-label="Frequency Field home"><span class="mark">F</span><span>FIELDNOTE <i>/</i> 01</span></a>
+      <div class="top-meta"><span class="live-dot"></span><span>LOCAL PROCESSING</span><span class="top-divider"></span><a href="/docs" target="_blank" rel="noreferrer">API ↗</a></div>
+    </header>
+
+    <main>
+      <section class="intro">
+        <div>
+          <div class="eyebrow">IMAGE SIGNAL LAB <span>—</span> 2026</div>
+          <h1>Frequency,<br><em>made visible.</em></h1>
+        </div>
+        <p class="intro-note">A private, local study of image transforms.<br>Ownership metadata, encrypted and embedded.</p>
+      </section>
+
+      <div class="workspace">
+        <div class="left-column">
+          <section class="panel stage-panel">
+            <div class="section-head"><span class="index">01</span><div><h2>Cover image</h2><p>Choose a PNG or JPEG · processed locally</p></div></div>
+            <label id="dropzone" class="dropzone" for="image-file">
+              <input id="image-file" type="file" accept="image/png,image/jpeg">
+              <span class="upload-mark">↑</span><strong>Drop an image here</strong><span>or <u>browse files</u></span>
+            </label>
+            <div id="cover-info" class="cover-info hidden">
+              <img id="cover-preview" alt="Selected cover preview">
+              <div class="cover-data"><strong id="cover-name">—</strong><span id="cover-size" class="mono">—</span><div class="stats-pair"><span>BLOCKS</span><b id="cover-blocks">—</b></div><div class="stats-pair"><span>MAX CAPACITY</span><b id="cover-capacity">—</b></div></div>
+              <button id="remove-image" class="icon-button" type="button" aria-label="Remove image">×</button>
+            </div>
+          </section>
+
+          <section class="panel stage-panel">
+            <div class="section-head"><span class="index">02</span><div><h2>Embedding parameters</h2><p>Encrypt metadata, then quantize the mid-band</p></div></div>
+            <form id="embed-form">
+              <label class="field-label" for="owner">OWNER ID</label>
+              <input id="owner" class="text-input" name="owner" maxlength="256" placeholder="e.g. Studio North" required>
+              <label class="field-label" for="password">ENCRYPTION PASSWORD</label>
+              <div class="password-wrap"><input id="password" class="text-input" name="password" type="password" minlength="1" placeholder="A strong passphrase" required><button id="toggle-password" class="password-toggle" type="button">SHOW</button></div>
+              <div class="field-label mode-label">TRANSFORM BASIS</div>
+              <div class="segmented">
+                <label><input type="radio" name="mode" value="checkerboard" checked><span>Checkerboard <small>DCT / DST</small></span></label>
+                <label><input type="radio" name="mode" value="hybrid"><span>Hybrid <small>Row DCT / Col DST</small></span></label>
+              </div>
+              <div class="range-head"><label class="field-label" for="alpha">QIM STRENGTH <span class="math">α</span></label><output id="alpha-value" class="mono">15</output></div>
+              <input id="alpha" class="range" type="range" min="5" max="35" value="15">
+              <div class="range-scale mono"><span>5 · subtle</span><span>35 · robust</span></div>
+              <button id="embed-button" class="primary-button" type="submit"><span>Encrypt &amp; Embed Watermark</span><span>↗</span></button>
+              <p id="embed-status" class="form-status" role="status"></p>
+            </form>
+          </section>
+
+          <details class="panel verify-drawer">
+            <summary><span class="index">↗</span><span><b>Verify a watermark</b><small>Test an existing watermarked PNG</small></span><span class="summary-chevron">+</span></summary>
+            <form id="verify-form" class="verify-form">
+              <label class="field-label" for="verify-image">WATERMARKED PNG</label>
+              <input id="verify-image" class="text-input file-input" type="file" accept="image/png" required>
+              <label class="field-label" for="verify-password">PASSWORD</label>
+              <input id="verify-password" class="text-input" type="password" required>
+              <button class="secondary-button" type="submit">Verify signature <span>→</span></button>
+              <p id="verify-status" class="form-status" role="status"></p>
+            </form>
+          </details>
+        </div>
+
+        <div class="right-column">
+          <section class="panel visualizer-panel">
+            <div class="section-head"><span class="index">04</span><div><h2>Transform observatory</h2><p id="viz-subtitle">Select a block to inspect its frequency basis</p></div><button id="play-animation" class="icon-button play-button" type="button" title="Play transform sequence">▶</button></div>
+            <div class="viz-toolbar"><span id="transform-name" class="basis-tag">AWAITING BLOCK</span><span id="block-position" class="mono">— / —</span></div>
+            <div id="matrix-caption" class="matrix-caption">SPATIAL LUMINANCE · 8 × 8</div>
+            <div id="transform-matrix" class="matrix spatial-matrix" aria-label="Selected 8 by 8 matrix"></div>
+            <div id="basis-strip" class="basis-strip">
+              <div><span id="row-basis-label">ROW BASIS · DCT-II</span><svg viewBox="0 0 144 44" preserveAspectRatio="none" aria-hidden="true"><path id="row-basis-wave"></path></svg></div>
+              <div><span id="column-basis-label">COLUMN BASIS · DST-II</span><svg viewBox="0 0 144 44" preserveAspectRatio="none" aria-hidden="true"><path id="column-basis-wave"></path></svg></div>
+            </div>
+            <div class="matrix-legend"><span><i class="legend-blue"></i>DCT-II</span><span><i class="legend-green"></i>DST-II</span><span class="mono">CLICK IMAGE TO SELECT BLOCK</span></div>
+            <div class="process-steps" id="process-steps">
+              <button class="process-step active" data-step="0"><b>01</b><span>Spatial</span></button>
+              <button class="process-step" data-step="1"><b>02</b><span>Transform</span></button>
+              <button class="process-step" data-step="2"><b>03</b><span>QIM inject</span></button>
+              <button class="process-step" data-step="3"><b>04</b><span>Reconstruct</span></button>
+            </div>
+          </section>
+
+          <section class="panel pixel-panel">
+            <div class="section-head"><span class="index">↘</span><div><h2>Pixel dissection</h2><p>Y luminance · color values on hover</p></div></div>
+            <div class="pixel-key"><span><i class="key-original"></i>ORIGINAL Y</span><span><i class="key-watermarked"></i>WATERMARKED Y</span></div>
+            <div id="pixel-grid" class="matrix pixel-grid"><div class="empty-matrix">Embed an image, then click any block.</div></div>
+            <p class="micro-note">Hover a cell for exact RGB and YCrCb values before / after.</p>
+          </section>
+        </div>
+      </div>
+
+      <section id="results" class="results-section hidden">
+        <div class="results-heading"><div class="section-head"><span class="index">03</span><div><h2>Signal report</h2><p id="result-file">—</p></div></div><a id="download-link" class="download-button" download="watermarked.png">Download PNG <span>↓</span></a></div>
+        <div class="metrics-strip">
+          <div class="metric"><span>PSNR</span><b id="metric-psnr">—</b><small>dB</small></div>
+          <div class="metric"><span>SSIM</span><b id="metric-ssim">—</b><small>index</small></div>
+          <div class="metric"><span>PAYLOAD</span><b id="metric-payload">—</b><small>bits used</small></div>
+          <div class="metric crypto-metric"><span>CRYPTOGRAPHY</span><b><i class="status-check">✓</i> AES-256-GCM</b><small>PBKDF2 · SHA-256</small></div>
+        </div>
+        <div class="nonce-strip"><span>PUBLIC SALT <code id="salt-value">—</code></span><span>PUBLIC NONCE <code id="nonce-value">—</code></span><small>Neither value is the password or derived key.</small></div>
+        <div class="image-results">
+          <article class="image-card"><div class="image-card-head"><span><i class="swatch blue-swatch"></i>01 / ORIGINAL</span><span id="original-dimensions" class="mono">—</span></div><button class="image-view" data-image="original" type="button" aria-label="Select block from original image"><img id="original-result" alt="Original image"></button></article>
+          <article class="image-card"><div class="image-card-head"><span><i class="swatch green-swatch"></i><span id="second-image-label">02 / WATERMARKED</span></span><button id="toggle-diff" class="text-button" type="button">VIEW RESIDUAL</button></div><button class="image-view" data-image="watermarked" type="button" aria-label="Select block from watermarked image"><img id="watermarked-result" alt="Watermarked image"></button></article>
+        </div>
+        <div class="spectrum-row"><span>FOURIER MAGNITUDE <span class="mono">· LOG SCALE</span></span><img id="spectrum-result" alt="Watermarked image Fourier magnitude spectrum"></div>
+        <p class="report-footnote">Residual map shows |Y<sub>stego</sub> − Y<sub>orig</sub>| × 20. Click either image to inspect its corresponding 8 × 8 block.</p>
+      </section>
+
+      <footer><span>FIELDNOTE / 01</span><span>ALL PROCESSING STAYS IN THIS SESSION</span><a href="https://github.com/Attlornets/dct-dst-digital-watermarking" target="_blank" rel="noreferrer">SOURCE ↗</a></footer>
+    </main>
+    <div id="toast" class="toast" role="status"></div>
+    <script src="/static/app.js" defer></script>
+  </body>
+</html>

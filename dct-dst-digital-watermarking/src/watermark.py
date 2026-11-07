@@ -13,6 +13,8 @@ from .crypto_utils import (
     decrypt_metadata,
     encrypt_metadata,
     MIN_ENCRYPTED_SIZE,
+    NONCE_SIZE,
+    SALT_SIZE,
 )
 from .transforms import (
     BLOCK_SIZE,
@@ -40,6 +42,8 @@ class WatermarkResult:
     image: NDArray[np.uint8]
     payload_bits: int
     capacity_bits: int
+    salt_hex: str
+    nonce_hex: str
 
     @property
     def capacity_used_percent(self) -> float:
@@ -52,21 +56,49 @@ def _validate_alpha(alpha: float) -> None:
 
 
 def _iter_coefficients(
-    y_channel: NDArray[np.float32], mode: TransformMode
+    y_channel: NDArray[np.float32],
+    mode: TransformMode,
+    eligible_blocks: NDArray[np.bool_] | None = None,
 ) -> Iterator[tuple[int, int, NDArray[np.float64], tuple[int, int]]]:
     block_rows, block_cols = y_channel.shape[0] // BLOCK_SIZE, y_channel.shape[1] // BLOCK_SIZE
     for block_row in range(block_rows):
         for block_col in range(block_cols):
+            if eligible_blocks is not None and not eligible_blocks[block_row, block_col]:
+                continue
             row = block_row * BLOCK_SIZE
             col = block_col * BLOCK_SIZE
             block = y_channel[row : row + BLOCK_SIZE, col : col + BLOCK_SIZE]
             yield block_row, block_col, forward_block(block, block_row, block_col, mode), (row, col)
 
 
-def _capacity_bits(image_shape: tuple[int, ...]) -> int:
+def _eligible_blocks(
+    image_shape: tuple[int, ...], alpha_channel: NDArray[np.uint8] | None
+) -> NDArray[np.bool_] | None:
+    if alpha_channel is None:
+        return None
     height, width = image_shape[:2]
-    block_rows, block_cols = height // BLOCK_SIZE, width // BLOCK_SIZE
-    return block_rows * block_cols * len(MID_FREQUENCY_COORDINATES)
+    if alpha_channel.shape != (height, width) or alpha_channel.dtype != np.uint8:
+        raise ValueError("Alpha channel must be a uint8 array matching image dimensions.")
+    cropped = alpha_channel[: height - height % BLOCK_SIZE, : width - width % BLOCK_SIZE]
+    blocks = cropped.reshape(
+        cropped.shape[0] // BLOCK_SIZE,
+        BLOCK_SIZE,
+        cropped.shape[1] // BLOCK_SIZE,
+        BLOCK_SIZE,
+    )
+    return np.all(blocks == 255, axis=(1, 3))
+
+
+def _capacity_bits(
+    image_shape: tuple[int, ...],
+    eligible_blocks: NDArray[np.bool_] | None = None,
+) -> int:
+    if eligible_blocks is None:
+        height, width = image_shape[:2]
+        block_count = (height // BLOCK_SIZE) * (width // BLOCK_SIZE)
+    else:
+        block_count = int(np.count_nonzero(eligible_blocks))
+    return block_count * len(MID_FREQUENCY_COORDINATES)
 
 
 def _payload_to_bits(payload: bytes) -> list[int]:
@@ -99,6 +131,7 @@ def embed_watermark(
     password: str,
     mode: TransformMode = "checkerboard",
     alpha: float = 15.0,
+    alpha_channel: NDArray[np.uint8] | None = None,
 ) -> WatermarkResult:
     """Encrypt and embed owner metadata in a BGR image's luminance coefficients."""
     _validate_alpha(alpha)
@@ -109,7 +142,8 @@ def embed_watermark(
 
     encrypted_payload = encrypt_metadata(owner, password)
     bits = _payload_to_bits(encrypted_payload)
-    capacity_bits = _capacity_bits(image_bgr.shape)
+    eligible_blocks = _eligible_blocks(image_bgr.shape, alpha_channel)
+    capacity_bits = _capacity_bits(image_bgr.shape, eligible_blocks)
     if len(bits) > capacity_bits:
         available_bytes = max(0, capacity_bits // 8 - HEADER_SIZE_BYTES)
         raise WatermarkError(
@@ -121,7 +155,7 @@ def embed_watermark(
     y_channel = ycrcb[:, :, 0].copy()
     bit_index = 0
     for block_row, block_col, coefficients, (row, col) in _iter_coefficients(
-        y_channel, mode
+        y_channel, mode, eligible_blocks
     ):
         for coordinate in MID_FREQUENCY_COORDINATES:
             if bit_index == len(bits):
@@ -138,7 +172,13 @@ def embed_watermark(
 
     ycrcb[:, :, 0] = y_channel
     result = ycrcb_to_bgr(ycrcb)
-    return WatermarkResult(result, len(bits), capacity_bits)
+    return WatermarkResult(
+        result,
+        len(bits),
+        capacity_bits,
+        encrypted_payload[:SALT_SIZE].hex(),
+        encrypted_payload[SALT_SIZE : SALT_SIZE + NONCE_SIZE].hex(),
+    )
 
 
 def _extract_bits(
@@ -146,11 +186,12 @@ def _extract_bits(
     count: int,
     mode: TransformMode,
     alpha: float,
+    eligible_blocks: NDArray[np.bool_] | None,
 ) -> list[int]:
     ycrcb = bgr_to_ycrcb(image_bgr)
     bits: list[int] = []
     for block_row, block_col, coefficients, _ in _iter_coefficients(
-        ycrcb[:, :, 0], mode
+        ycrcb[:, :, 0], mode, eligible_blocks
     ):
         for coordinate in MID_FREQUENCY_COORDINATES:
             bits.append(_qim_decode(coefficients[coordinate], alpha))
@@ -166,15 +207,19 @@ def extract_watermark(
     password: str,
     mode: TransformMode = "checkerboard",
     alpha: float = 15.0,
+    alpha_channel: NDArray[np.uint8] | None = None,
 ) -> str:
     """Extract, authenticate, and decrypt owner metadata from a BGR image."""
     _validate_alpha(alpha)
     if mode not in ("checkerboard", "hybrid"):
         raise ValueError(f"Unsupported transform mode: {mode!r}.")
-    capacity_bits = _capacity_bits(image_bgr.shape)
+    eligible_blocks = _eligible_blocks(image_bgr.shape, alpha_channel)
+    capacity_bits = _capacity_bits(image_bgr.shape, eligible_blocks)
     if capacity_bits < HEADER_SIZE_BITS:
         raise WatermarkError("Image is too small to contain a watermark length header.")
-    header = _bits_to_bytes(_extract_bits(image_bgr, HEADER_SIZE_BITS, mode, alpha))
+    header = _bits_to_bytes(
+        _extract_bits(image_bgr, HEADER_SIZE_BITS, mode, alpha, eligible_blocks)
+    )
     payload_size = int.from_bytes(header, "big")
     if payload_size < MIN_ENCRYPTED_SIZE:
         raise WatermarkError("Watermark length header is invalid or image has no watermark.")
@@ -184,7 +229,11 @@ def extract_watermark(
             "Watermark length header exceeds image capacity; image may be unwatermarked "
             "or damaged."
         )
-    payload = _bits_to_bytes(_extract_bits(image_bgr, total_bits, mode, alpha)[HEADER_SIZE_BITS:])
+    payload = _bits_to_bytes(
+        _extract_bits(image_bgr, total_bits, mode, alpha, eligible_blocks)[
+            HEADER_SIZE_BITS:
+        ]
+    )
     try:
         return decrypt_metadata(payload, password)
     except AuthenticationError:

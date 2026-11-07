@@ -14,10 +14,17 @@ from src.transforms import TransformMode
 
 
 def _read_image(path: str) -> cv2.Mat:
-    image = cv2.imread(path, cv2.IMREAD_COLOR)
+    image = cv2.imread(path, cv2.IMREAD_UNCHANGED)
     if image is None:
         raise ValueError(f"Could not read image: {path}")
+    if image.ndim != 3 or image.shape[2] not in (3, 4) or image.dtype.name != "uint8":
+        raise ValueError("Input must be an 8-bit BGR or BGRA color image.")
     return image
+
+
+def _bgr_channels(image: cv2.Mat) -> cv2.Mat:
+    """Return BGR channels while keeping any alpha channel separate."""
+    return image[:, :, :3]
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -50,25 +57,39 @@ def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     try:
         image = _read_image(args.input)
+        bgr_image = _bgr_channels(image)
+        alpha_channel = image[:, :, 3] if image.shape[2] == 4 else None
         if args.command == "embed":
             output_path = Path(args.output)
             if output_path.suffix.lower() != ".png":
                 raise ValueError("Watermarked output must use the lossless .png format.")
             result = embed_watermark(
-                image, args.owner, args.password, args.mode, args.alpha
+                bgr_image,
+                args.owner,
+                args.password,
+                args.mode,
+                args.alpha,
+                alpha_channel,
             )
-            if not cv2.imwrite(str(output_path), result.image):
+            output_image = (
+                cv2.merge((*cv2.split(result.image), alpha_channel))
+                if alpha_channel is not None
+                else result.image
+            )
+            if not cv2.imwrite(str(output_path), output_image):
                 raise OSError(f"Could not write output image: {output_path}")
             print(f"Watermark embedded: {output_path}")
             print(
                 f"Capacity: {result.payload_bits}/{result.capacity_bits} bits "
                 f"({result.capacity_used_percent:.2f}%)"
             )
-            print(f"PSNR: {psnr(image, result.image):.2f} dB")
-            print(f"SSIM: {ssim(image, result.image):.6f}")
+            print(f"PSNR: {psnr(bgr_image, result.image):.2f} dB")
+            print(f"SSIM: {ssim(bgr_image, result.image):.6f}")
             return 0
 
-        owner = extract_watermark(image, args.password, args.mode, args.alpha)
+        owner = extract_watermark(
+            bgr_image, args.password, args.mode, args.alpha, alpha_channel
+        )
         print(f"Verified owner: {owner}")
         return 0
     except AuthenticationError as exc:
