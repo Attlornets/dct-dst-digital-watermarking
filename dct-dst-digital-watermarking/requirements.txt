@@ -1,0 +1,6 @@
+numpy>=1.26
+scipy>=1.11
+opencv-python>=4.8
+scikit-image>=0.22
+cryptography>=42.0
+pytest>=8.0
